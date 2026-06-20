@@ -1,5 +1,6 @@
 """
 LabsCo Training Division - Field Evaluation Grading Tool
+Made by Kuhaisthebest
 ----------------------------------------------------------
 """
 import os
@@ -24,6 +25,7 @@ from reportlab.platypus import (
 EVAL_1 = {
     "title": "Field Evaluation 1 — Patrol",
     "rubric_url": "https://www.quickrubric.com/r#/qr/ummhi1234/field-evaluation-1--20-marks-",
+    "Eval_url": "https://docs.google.com/document/d/1hBInZThber793kLg8_6XImlUHtwuctZ4ksBh9r9FUwY/edit?tab=t.0",
     "sections": [
         {
             "name": "Driving",
@@ -109,6 +111,206 @@ class ScrollableFrame(ttk.Frame):
 
 
 # ---------------------------------------------------------------------
+# Timer widget
+# ---------------------------------------------------------------------
+
+class EvalTimer(ttk.LabelFrame):
+    """
+    A countdown timer that lives at the top of each eval screen.
+    """
+
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, text="Evaluation Timer", *args, **kwargs)
+
+        self._remaining = 0          # seconds left
+        self._running   = False
+        self._after_id  = None
+
+        self._build_ui()
+
+    # ---- UI ----
+
+    def _build_ui(self):
+        # ---- Row 1: input + buttons ----
+        ctrl = ttk.Frame(self)
+        ctrl.pack(fill="x", padx=10, pady=(6, 4))
+
+        ttk.Label(ctrl, text="Duration:").pack(side="left")
+
+        self._input_var = tk.StringVar(value="")
+        entry = ttk.Entry(ctrl, textvariable=self._input_var, width=8)
+        entry.pack(side="left", padx=(4, 2))
+        # Allow Enter key to start/set
+        entry.bind("<Return>", lambda e: self._on_start())
+
+        ttk.Label(ctrl, text='e.g. "1h", "30"', font=("Segoe UI", 8),
+                  foreground="#888888").pack(side="left", padx=(2, 10))
+
+        self._start_btn = ttk.Button(ctrl, text="▶  Start", width=10,
+                                     command=self._on_start)
+        self._start_btn.pack(side="left", padx=2)
+
+        self._pause_btn = ttk.Button(ctrl, text="⏸  Pause", width=10,
+                                     command=self._on_pause, state="disabled")
+        self._pause_btn.pack(side="left", padx=2)
+
+        self._reset_btn = ttk.Button(ctrl, text="↺  Reset", width=10,
+                                     command=self._on_reset, state="disabled")
+        self._reset_btn.pack(side="left", padx=2)
+
+        # ---- Row 2: countdown display ----
+        display_frame = ttk.Frame(self)
+        display_frame.pack(fill="x", padx=10, pady=(0, 8))
+
+        self._time_label = tk.Label(
+            display_frame,
+            text="--:--",
+            font=("Courier New", 28, "bold"),
+            foreground="#1a1a2e",
+            bg=self.winfo_toplevel().cget("bg"),
+        )
+        self._time_label.pack(side="left")
+
+        self._status_label = ttk.Label(display_frame, text="",
+                                        font=("Segoe UI", 9), foreground="#666666")
+        self._status_label.pack(side="left", padx=(14, 0))
+
+    # ---- Parsing ----
+
+    def _parse_input(self, text):
+        """
+        Return total seconds from user input, or None if invalid.
+        Supports:  "1h"  "0.5h"  "1.5h"  "30"  "30m"
+        """
+        text = text.strip().lower()
+        if not text:
+            return None
+
+        if text.endswith("h"):
+            try:
+                hours = float(text[:-1])
+                return int(round(hours * 3600))
+            except ValueError:
+                return None
+
+        if text.endswith("m"):
+            try:
+                minutes = float(text[:-1])
+                return int(round(minutes * 60))
+            except ValueError:
+                return None
+
+        # Plain number → minutes
+        try:
+            minutes = float(text)
+            return int(round(minutes * 60))
+        except ValueError:
+            return None
+
+    # ---- Button callbacks ----
+
+    def _on_start(self):
+        if self._running:
+            return  # already running; ignore
+
+        raw = self._input_var.get()
+        secs = self._parse_input(raw)
+        if secs is None or secs <= 0:
+            messagebox.showwarning(
+                "Invalid duration",
+                'Enter a duration like "1h", "0.5h", or "30" (minutes).',
+            )
+            return
+
+        self._remaining = secs
+        self._running = True
+        self._start_btn.config(state="disabled")
+        self._pause_btn.config(state="normal")
+        self._reset_btn.config(state="normal")
+        self._status_label.config(text="Running…", foreground="#1a7f37")
+        self._tick()
+
+    def _on_pause(self):
+        if self._running:
+            # Pause
+            self._running = False
+            if self._after_id:
+                self.after_cancel(self._after_id)
+                self._after_id = None
+            self._pause_btn.config(text="▶  Resume")
+            self._status_label.config(text="Paused", foreground="#c07000")
+        else:
+            # Resume
+            self._running = True
+            self._pause_btn.config(text="⏸  Pause")
+            self._status_label.config(text="Running…", foreground="#1a7f37")
+            self._tick()
+
+    def _on_reset(self):
+        self._running = False
+        if self._after_id:
+            self.after_cancel(self._after_id)
+            self._after_id = None
+        self._remaining = 0
+        self._time_label.config(text="--:--", foreground="#1a1a2e")
+        self._start_btn.config(state="normal")
+        self._pause_btn.config(text="⏸  Pause", state="disabled")
+        self._reset_btn.config(state="disabled")
+        self._status_label.config(text="", foreground="#666666")
+
+    # ---- Tick ----
+
+    def _tick(self):
+        if not self._running:
+            return
+
+        self._update_display()
+
+        if self._remaining <= 0:
+            self._running = False
+            self._time_label.config(text="00:00", foreground="#c0392b")
+            self._pause_btn.config(state="disabled")
+            self._status_label.config(text="Time's up!", foreground="#c0392b")
+            # Flash the window title as a simple alert
+            self.winfo_toplevel().bell()
+            return
+
+        self._remaining -= 1
+        self._after_id = self.after(1000, self._tick)
+
+    def _update_display(self):
+        secs = self._remaining
+        hours   = secs // 3600
+        minutes = (secs % 3600) // 60
+        seconds = secs % 60
+
+        if hours > 0:
+            text = f"{hours:d}:{minutes:02d}:{seconds:02d}"
+        else:
+            text = f"{minutes:02d}:{seconds:02d}"
+
+        # Colour: green → amber (≤5 min) → red (≤1 min)
+        if secs <= 60:
+            colour = "#c0392b"
+        elif secs <= 300:
+            colour = "#c07000"
+        else:
+            colour = "#1a7f37"
+
+        self._time_label.config(text=text, foreground=colour)
+
+    # ---- Cleanup ----
+
+    def destroy(self):
+        if self._after_id:
+            try:
+                self.after_cancel(self._after_id)
+            except Exception:
+                pass
+        super().destroy()
+
+
+# ---------------------------------------------------------------------
 # Main application
 # ---------------------------------------------------------------------
 
@@ -170,6 +372,12 @@ class GradingApp(tk.Tk):
             command=lambda: webbrowser.open(EVAL_2["rubric_url"]),
         ).pack(pady=8, ipadx=12, ipady=10, fill="x", padx=80)
 
+        ttk.Button(
+            self,
+            text="Grading Handbook",
+            command=lambda: webbrowser.open(EVAL_1["Eval_url"]),
+        ).pack(pady=8, ipadx=12, ipady=10, fill="x", padx=80)
+
         ttk.Label(
             self,
             text="Note: failing one section still fails the whole evaluation.",
@@ -188,7 +396,11 @@ class GradingApp(tk.Tk):
         ttk.Button(top, text="← Back to Menu", command=self.show_menu).pack(side="left")
         ttk.Button(top, text="Reset", command=lambda: self.show_eval(eval_data)).pack(side="right")
 
-        ttk.Label(self, text=eval_data["title"], font=("Segoe UI", 15, "bold")).pack(pady=(0, 10))
+        ttk.Label(self, text=eval_data["title"], font=("Segoe UI", 15, "bold")).pack(pady=(0, 6))
+
+        # ---- Timer ----
+        self._timer = EvalTimer(self)
+        self._timer.pack(fill="x", padx=12, pady=(0, 8))
 
         names_frame = ttk.Frame(self)
         names_frame.pack(fill="x", padx=12, pady=(0, 8))
